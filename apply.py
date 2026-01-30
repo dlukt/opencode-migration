@@ -101,7 +101,7 @@ def resolve_prompt(prompt_value: str, home: Path) -> str:
     inner_path = Path(inner)
     if inner_path.is_absolute():
         return prompt_value
-    cleaned = inner.lstrip("./")
+    cleaned = inner[2:] if inner.startswith("./") else inner
     resolved = (home / cleaned).resolve()
     return f"{{file:{resolved.as_posix()}}}"
 
