@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import shutil
 from datetime import datetime
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent.parent
-SRC_DIR = ROOT / "opencode-migration" / "files"
-HOME = Path.home()
-TARGET_CONFIG = HOME / ".config" / "opencode" / "opencode.json"
+ROOT = Path(__file__).resolve().parent
+SRC_DIR = ROOT / "files"
+DEFAULT_HOME = Path.home()
+DEFAULT_BACKUP_PARENT = ROOT / "backups"
+BACKUP_PREFIX = "opencode-migration-"
 
 PROMPT_FILES = [
     ".opencode/prompts/build-gpt-5.2-codex.md",
@@ -28,25 +30,28 @@ def ensure_parent(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
-def backup_path(backup_root: Path, target: Path) -> Path:
-    relative = target.relative_to(HOME)
+def backup_path(backup_root: Path, target: Path, home: Path) -> Path:
+    relative = target.relative_to(home)
     return backup_root / relative
 
 
-def maybe_backup(backup_root: Path, target: Path) -> None:
+def maybe_backup(backup_root: Path, target: Path, home: Path) -> None:
     if not target.exists():
         return
-    backup = backup_path(backup_root, target)
+    backup = backup_path(backup_root, target, home)
     ensure_parent(backup)
     shutil.copy2(target, backup)
 
 
-def copy_with_backup(backup_root: Path, rel_path: str) -> None:
+def copy_with_backup(
+    backup_root: Path, rel_path: str, home: Path, skip_backup: bool
+) -> None:
     src = SRC_DIR / rel_path
-    dst = HOME / rel_path
+    dst = home / rel_path
     if not src.is_file():
         raise FileNotFoundError(f"Missing source file: {src}")
-    maybe_backup(backup_root, dst)
+    if not skip_backup:
+        maybe_backup(backup_root, dst, home)
     ensure_parent(dst)
     shutil.copy2(src, dst)
 
@@ -84,28 +89,78 @@ def merge_config(target: dict, source: dict) -> dict:
     return target
 
 
+def backup_directory(backup_root: Path, target_dir: Path, home: Path) -> bool:
+    if not target_dir.exists():
+        return False
+    backup_dir = backup_root / target_dir.relative_to(home)
+    if backup_dir.exists():
+        shutil.rmtree(backup_dir)
+    backup_dir.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(target_dir, backup_dir)
+    return True
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Apply OpenCode prompt migration.")
+    parser.add_argument(
+        "--home",
+        default=str(DEFAULT_HOME),
+        help="Home directory to target (default: current user home).",
+    )
+    parser.add_argument(
+        "--backup-dir",
+        default="",
+        help="Explicit backup directory to write to.",
+    )
+    parser.add_argument(
+        "--backup-parent",
+        default=str(DEFAULT_BACKUP_PARENT),
+        help="Directory under which backups are created when --backup-dir is not set.",
+    )
+    parser.add_argument(
+        "--backup-prefix",
+        default=BACKUP_PREFIX,
+        help="Prefix for auto-created backup directories.",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
+    args = parse_args()
+    home = Path(args.home).expanduser().resolve()
+    target_config = home / ".config" / "opencode" / "opencode.json"
+
     if not SRC_DIR.exists():
         print(f"Missing migration folder: {SRC_DIR}")
         return 1
 
-    backup_root = (
-        ROOT / "opencode-migration" / "backups" / datetime.now().strftime("%Y%m%d-%H%M%S")
-    )
+    if args.backup_dir:
+        backup_root = Path(args.backup_dir).expanduser().resolve()
+    else:
+        backup_parent = Path(args.backup_parent).expanduser().resolve()
+        backup_root = backup_parent / f"{args.backup_prefix}{datetime.now().strftime('%Y%m%d-%H%M%S')}"
 
     source_config = SRC_DIR / "opencode.json"
     if not source_config.is_file():
         print(f"Missing source config: {source_config}")
         return 1
 
-    target_config = load_json(TARGET_CONFIG)
-    source_data = load_json(source_config)
-    maybe_backup(backup_root, TARGET_CONFIG)
-    merged = merge_config(target_config, source_data)
-    save_json(TARGET_CONFIG, merged)
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backed_up_opencode = backup_directory(backup_root, home / ".opencode", home)
+    backed_up_config = backup_directory(
+        backup_root, home / ".config" / "opencode", home
+    )
 
+    target_config_data = load_json(target_config)
+    source_data = load_json(source_config)
+    if not backed_up_config:
+        maybe_backup(backup_root, target_config, home)
+    merged = merge_config(target_config_data, source_data)
+    save_json(target_config, merged)
+
+    skip_backup = backed_up_opencode
     for rel_path in PROMPT_FILES:
-        copy_with_backup(backup_root, rel_path)
+        copy_with_backup(backup_root, rel_path, home, skip_backup)
 
     print("Reapplied OpenCode prompt migration files.")
     return 0

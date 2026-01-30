@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
+import argparse
 import json
 import shutil
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent.parent
-BACKUP_ROOT = ROOT / "opencode-migration" / "backups"
-SRC_DIR = ROOT / "opencode-migration" / "files"
-HOME = Path.home()
-TARGET_CONFIG = HOME / ".config" / "opencode" / "opencode.json"
+ROOT = Path(__file__).resolve().parent
+BACKUP_ROOT = ROOT / "backups"
+SRC_DIR = ROOT / "files"
+DEFAULT_HOME = Path.home()
+DEFAULT_BACKUP_PARENT = ROOT / "backups"
+BACKUP_PREFIX = "opencode-migration-"
 
 PROMPT_FILES = [
     ".opencode/prompts/build-gpt-5.2-codex.md",
@@ -48,18 +50,20 @@ def remove_empty_dirs(path: Path, stop: Path) -> None:
         current = current.parent
 
 
-def latest_backup_dir() -> Path | None:
-    if not BACKUP_ROOT.exists():
+def latest_backup_dir(parent: Path, prefix: str) -> Path | None:
+    if not parent.exists():
         return None
-    candidates = [p for p in BACKUP_ROOT.iterdir() if p.is_dir()]
+    candidates = [
+        p for p in parent.iterdir() if p.is_dir() and p.name.startswith(prefix)
+    ]
     if not candidates:
         return None
     return sorted(candidates)[-1]
 
 
-def restore_from_backup(backup_dir: Path, rel_path: str) -> None:
+def restore_from_backup(backup_dir: Path, rel_path: str, home: Path) -> None:
     backup_path = backup_dir / rel_path
-    target = HOME / rel_path
+    target = home / rel_path
     if backup_path.exists():
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(backup_path, target)
@@ -68,14 +72,16 @@ def restore_from_backup(backup_dir: Path, rel_path: str) -> None:
             shutil.rmtree(target)
         else:
             target.unlink()
-        remove_empty_dirs(target.parent, HOME)
+        remove_empty_dirs(target.parent, home)
 
 
-def remove_agents_from_config(agent_names: set[str]) -> None:
-    if not agent_names or not TARGET_CONFIG.exists():
+def remove_agents_from_config(
+    agent_names: set[str], target_config: Path, home: Path
+) -> None:
+    if not agent_names or not target_config.exists():
         return
 
-    target_data = load_json(TARGET_CONFIG)
+    target_data = load_json(target_config)
     agents = target_data.get("agent", {})
     if not isinstance(agents, dict):
         return
@@ -90,38 +96,90 @@ def remove_agents_from_config(agent_names: set[str]) -> None:
         if not agents:
             target_data.pop("agent", None)
         if not target_data:
-            TARGET_CONFIG.unlink(missing_ok=True)
-            remove_empty_dirs(TARGET_CONFIG.parent, HOME)
+            target_config.unlink(missing_ok=True)
+            remove_empty_dirs(target_config.parent, home)
         else:
-            save_json(TARGET_CONFIG, target_data)
+            save_json(target_config, target_data)
+
+def restore_dir(backup_dir: Path, rel_path: str, home: Path) -> bool:
+    source = backup_dir / rel_path
+    target = home / rel_path
+    if not source.exists():
+        return False
+    if target.exists():
+        shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, target)
+    return True
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Unapply OpenCode prompt migration.")
+    parser.add_argument(
+        "--home",
+        default=str(DEFAULT_HOME),
+        help="Home directory to target (default: current user home).",
+    )
+    parser.add_argument(
+        "--backup-dir",
+        default="",
+        help="Explicit backup directory to restore from.",
+    )
+    parser.add_argument(
+        "--backup-parent",
+        default=str(DEFAULT_BACKUP_PARENT),
+        help="Directory under which backups are searched when --backup-dir is not set.",
+    )
+    parser.add_argument(
+        "--backup-prefix",
+        default=BACKUP_PREFIX,
+        help="Prefix used to locate backup directories.",
+    )
+    return parser.parse_args()
 
 
 def main() -> int:
+    args = parse_args()
+    home = Path(args.home).expanduser().resolve()
+    target_config = home / ".config" / "opencode" / "opencode.json"
+
     source_config = SRC_DIR / "opencode.json"
     source_data = load_json(source_config)
     agent_names = set(source_data.get("agent", {}).keys())
 
-    backup_dir = latest_backup_dir()
-    if backup_dir:
-        backup_config = backup_dir / ".config/opencode/opencode.json"
-        if backup_config.exists():
-            restore_from_backup(backup_dir, ".config/opencode/opencode.json")
-        else:
-            remove_agents_from_config(agent_names)
-        for rel_path in PROMPT_FILES:
-            restore_from_backup(backup_dir, rel_path)
+    if args.backup_dir:
+        backup_dir = Path(args.backup_dir).expanduser().resolve()
+    else:
+        backup_parent = Path(args.backup_parent).expanduser().resolve()
+        backup_dir = latest_backup_dir(backup_parent, args.backup_prefix)
+
+    if backup_dir and backup_dir.exists():
+        restored_opencode = restore_dir(backup_dir, ".opencode", home)
+        restored_config = restore_dir(backup_dir, ".config/opencode", home)
+
+        if not restored_config:
+            backup_config = backup_dir / ".config/opencode/opencode.json"
+            if backup_config.exists():
+                restore_from_backup(backup_dir, ".config/opencode/opencode.json", home)
+            else:
+                remove_agents_from_config(agent_names, target_config, home)
+
+        if not restored_opencode:
+            for rel_path in PROMPT_FILES:
+                restore_from_backup(backup_dir, rel_path, home)
+
         print(f"Restored from backup: {backup_dir}")
         return 0
 
-    remove_agents_from_config(agent_names)
+    remove_agents_from_config(agent_names, target_config, home)
     for rel_path in PROMPT_FILES:
-        target = HOME / rel_path
+        target = home / rel_path
         if target.exists():
             if target.is_dir():
                 shutil.rmtree(target)
             else:
                 target.unlink()
-            remove_empty_dirs(target.parent, HOME)
+            remove_empty_dirs(target.parent, home)
     print("Removed managed OpenCode migration files (no backups found).")
     return 0
 

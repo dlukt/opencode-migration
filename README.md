@@ -7,18 +7,25 @@ Configured agents:
 
 ## Apply
 
-From the repo root (`codex-to-opencode/`):
+From the repo root (`opencode-migration/`):
 
 ```bash
-./opencode-migration/apply.py
+./apply.py
 ```
 
-This copies the tracked files in `opencode-migration/files/` into `~/.opencode/` and merges the agent entries into `~/.config/opencode/opencode.json`. Backups are written to `opencode-migration/backups/` when targets already exist.
+This copies the tracked files in `files/` into `~/.opencode/` and merges the agent entries into `~/.config/opencode/opencode.json`. By default, backups are written under `backups/` with a prefix of `opencode-migration-`.
+
+Optional flags:
+- `--home` to target a different home directory
+- `--backup-dir` to set an explicit backup location
+- `--backup-parent` and `--backup-prefix` to control auto-created backup paths
 
 ## Unapply
 
 ```bash
-./opencode-migration/unapply.py
+./unapply.py
 ```
 
 If backups exist, this restores the most recent backup. If no backups are found, it removes the managed prompt files and removes the migrated agents from `~/.config/opencode/opencode.json`.
+
+Optional flags match `apply.py`.
