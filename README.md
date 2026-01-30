@@ -13,7 +13,7 @@ From the repo root (`opencode-migration/`):
 ./apply.py
 ```
 
-This copies the tracked files in `files/` into `~/.opencode/` and merges the agent entries into `~/.config/opencode/opencode.json`. By default, backups are written under `backups/` with a prefix of `opencode-migration-`.
+This copies the tracked files in `files/` into `~/.opencode/` and merges the agent entries into `~/.config/opencode/opencode.json`. Agent prompt paths are written as absolute `~/.opencode/...` references to avoid relative path issues. By default, backups are written under `backups/` with a prefix of `opencode-migration-`.
 
 Optional flags:
 - `--home` to target a different home directory

@@ -89,6 +89,39 @@ def merge_config(target: dict, source: dict) -> dict:
     return target
 
 
+def resolve_prompt(prompt_value: str, home: Path) -> str:
+    if not prompt_value.startswith("{file:"):
+        return prompt_value
+    if not prompt_value.endswith("}"):
+        return prompt_value
+    inner = prompt_value[len("{file:") : -1].strip()
+    if inner.startswith("~"):
+        resolved = Path(inner).expanduser().resolve()
+        return f"{{file:{resolved.as_posix()}}}"
+    inner_path = Path(inner)
+    if inner_path.is_absolute():
+        return prompt_value
+    cleaned = inner.lstrip("./")
+    resolved = (home / cleaned).resolve()
+    return f"{{file:{resolved.as_posix()}}}"
+
+
+def apply_prompt_paths(target: dict, source: dict, home: Path) -> None:
+    source_agents = source.get("agent", {})
+    if not isinstance(source_agents, dict):
+        return
+    target_agents = target.get("agent", {})
+    if not isinstance(target_agents, dict):
+        return
+    for name, spec in source_agents.items():
+        target_spec = target_agents.get(name)
+        if not isinstance(target_spec, dict):
+            continue
+        prompt_value = spec.get("prompt")
+        if isinstance(prompt_value, str):
+            target_spec["prompt"] = resolve_prompt(prompt_value, home)
+
+
 def backup_directory(backup_root: Path, target_dir: Path, home: Path) -> bool:
     if not target_dir.exists():
         return False
@@ -156,6 +189,7 @@ def main() -> int:
     if not backed_up_config:
         maybe_backup(backup_root, target_config, home)
     merged = merge_config(target_config_data, source_data)
+    apply_prompt_paths(merged, source_data, home)
     save_json(target_config, merged)
 
     skip_backup = backed_up_opencode
