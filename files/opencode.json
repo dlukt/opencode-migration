@@ -1,0 +1,45 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "build-gpt-5.2-codex": {
+      "description": "Codex-style build agent for gpt-5.2-codex",
+      "mode": "primary",
+      "model": "github-copilot/gpt-5.2-codex",
+      "prompt": "{file:./.opencode/prompts/build-gpt-5.2-codex.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow"
+      }
+    },
+    "plan-gpt-5.2-codex": {
+      "description": "Codex-style plan agent for gpt-5.2-codex",
+      "mode": "primary",
+      "model": "github-copilot/gpt-5.2-codex",
+      "prompt": "{file:./.opencode/prompts/plan-gpt-5.2-codex.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny"
+      }
+    },
+    "build-gpt-5.2": {
+      "description": "Codex-style build agent for gpt-5.2",
+      "mode": "primary",
+      "model": "github-copilot/gpt-5.2",
+      "prompt": "{file:./.opencode/prompts/build-gpt-5.2.md}",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow"
+      }
+    },
+    "plan-gpt-5.2": {
+      "description": "Codex-style plan agent for gpt-5.2",
+      "mode": "primary",
+      "model": "github-copilot/gpt-5.2",
+      "prompt": "{file:./.opencode/prompts/plan-gpt-5.2.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny"
+      }
+    }
+  }
+}
